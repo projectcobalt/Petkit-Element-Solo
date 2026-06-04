@@ -719,6 +719,7 @@ sensor:
     id: food_drop_pulses
     name: Food Drop Pulses
     icon: mdi:counter
+    disabled_by_default: false
     accuracy_decimals: 0
     lambda: return id(last_food_sensor_count);
 
