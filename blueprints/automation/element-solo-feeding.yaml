@@ -96,7 +96,8 @@ blueprint:
       input:
         error_notify_targets:
           name: Error notification targets
-          description: Notify these targets for failed, rejected, jammed, or unconfirmed feeds.
+          description: Notify these targets for failed, rejected, jammed, or unconfirmed
+            feeds.
           default: []
           selector:
             entity:
@@ -104,6 +105,7 @@ blueprint:
               - domain:
                 - notify
               multiple: true
+              reorder: false
         warning_notify_targets:
           name: Power warning notification targets
           description: Notify these targets for DC loss or low battery warnings.
@@ -114,6 +116,7 @@ blueprint:
               - domain:
                 - notify
               multiple: true
+              reorder: false
         success_notify_targets:
           name: Success notification targets
           description: Optionally notify these targets after a verified feed.
@@ -124,6 +127,7 @@ blueprint:
               - domain:
                 - notify
               multiple: true
+              reorder: false
 mode: single
 max_exceeded: silent
 variables:
@@ -187,12 +191,12 @@ actions:
     - choose:
       - conditions: '{{ warning_notify_targets | count > 0 }}'
         sequence:
-          - action: notify.send_message
-            target:
-              entity_id: !input warning_notify_targets
-            data:
-              title: '{{ notification_title }}'
-              message: '{{ notification_message }}'
+        - action: notify.send_message
+          target:
+            entity_id: !input warning_notify_targets
+          data:
+            title: '{{ notification_title }}'
+            message: '{{ notification_message }}'
   - conditions:
     - condition: trigger
       id: low_battery
@@ -206,12 +210,12 @@ actions:
     - choose:
       - conditions: '{{ warning_notify_targets | count > 0 }}'
         sequence:
-          - action: notify.send_message
-            target:
-              entity_id: !input warning_notify_targets
-            data:
-              title: '{{ notification_title }}'
-              message: '{{ notification_message }}'
+        - action: notify.send_message
+          target:
+            entity_id: !input warning_notify_targets
+          data:
+            title: '{{ notification_title }}'
+            message: '{{ notification_message }}'
   - conditions:
     - condition: trigger
       id: feeder_jammed
@@ -225,12 +229,12 @@ actions:
     - choose:
       - conditions: '{{ error_notify_targets | count > 0 }}'
         sequence:
-          - action: notify.send_message
-            target:
-              entity_id: !input error_notify_targets
-            data:
-              title: '{{ notification_title }}'
-              message: '{{ notification_message }}'
+        - action: notify.send_message
+          target:
+            entity_id: !input error_notify_targets
+          data:
+            title: '{{ notification_title }}'
+            message: '{{ notification_message }}'
   - conditions:
     - condition: trigger
       id: feeder_rejected
@@ -244,12 +248,12 @@ actions:
     - choose:
       - conditions: '{{ error_notify_targets | count > 0 }}'
         sequence:
-          - action: notify.send_message
-            target:
-              entity_id: !input error_notify_targets
-            data:
-              title: '{{ notification_title }}'
-              message: '{{ notification_message }}'
+        - action: notify.send_message
+          target:
+            entity_id: !input error_notify_targets
+          data:
+            title: '{{ notification_title }}'
+            message: '{{ notification_message }}'
   default:
   - condition: and
     conditions: !input feed_conditions
@@ -268,12 +272,12 @@ actions:
       - choose:
         - conditions: '{{ error_notify_targets | count > 0 }}'
           sequence:
-            - action: notify.send_message
-              target:
-                entity_id: !input error_notify_targets
-              data:
-                title: '{{ notification_title }}'
-                message: '{{ notification_message }}'
+          - action: notify.send_message
+            target:
+              entity_id: !input error_notify_targets
+            data:
+              title: '{{ notification_title }}'
+              message: '{{ notification_message }}'
       - stop: Feeder entities are unavailable
     - conditions: '{{ states(feeder_state) in [''Dispensing'', ''Clearing jam''] }}
 
@@ -288,12 +292,12 @@ actions:
       - choose:
         - conditions: '{{ error_notify_targets | count > 0 }}'
           sequence:
-            - action: notify.send_message
-              target:
-                entity_id: !input error_notify_targets
-              data:
-                title: '{{ notification_title }}'
-                message: '{{ notification_message }}'
+          - action: notify.send_message
+            target:
+              entity_id: !input error_notify_targets
+            data:
+              title: '{{ notification_title }}'
+              message: '{{ notification_message }}'
       - stop: Feeder is busy
     - conditions: '{{ states(feeder_state) == ''Jammed'' }}'
       sequence:
@@ -306,12 +310,12 @@ actions:
       - choose:
         - conditions: '{{ error_notify_targets | count > 0 }}'
           sequence:
-            - action: notify.send_message
-              target:
-                entity_id: !input error_notify_targets
-              data:
-                title: '{{ notification_title }}'
-                message: '{{ notification_message }}'
+          - action: notify.send_message
+            target:
+              entity_id: !input error_notify_targets
+            data:
+              title: '{{ notification_title }}'
+              message: '{{ notification_message }}'
       - stop: Feeder is jammed
   - action: number.set_value
     target:
@@ -330,8 +334,8 @@ actions:
     timeout: !input completion_timeout
     continue_on_timeout: true
   - variables:
-      result_event: "{{ 'timeout' if wait.trigger is none else\n   wait.trigger.to_state.attributes.event_type
-        | default('unknown') }}\n"
+      result_event: "{{ 'timeout' if wait.trigger is none else state_attr(feeder_event,
+        'event_type') | default('unknown') }}\n"
   - choose:
     - conditions: '{{ result_event == ''feed_completed'' }}'
       sequence:
@@ -353,12 +357,12 @@ actions:
           - choose:
             - conditions: '{{ error_notify_targets | count > 0 }}'
               sequence:
-                - action: notify.send_message
-                  target:
-                    entity_id: !input error_notify_targets
-                  data:
-                    title: '{{ notification_title }}'
-                    message: '{{ notification_message }}'
+              - action: notify.send_message
+                target:
+                  entity_id: !input error_notify_targets
+                data:
+                  title: '{{ notification_title }}'
+                  message: '{{ notification_message }}'
         - conditions: '{{ (reported_food_pulses | int) <= 0 }}'
           sequence:
           - variables:
@@ -370,12 +374,12 @@ actions:
           - choose:
             - conditions: '{{ error_notify_targets | count > 0 }}'
               sequence:
-                - action: notify.send_message
-                  target:
-                    entity_id: !input error_notify_targets
-                  data:
-                    title: '{{ notification_title }}'
-                    message: '{{ notification_message }}'
+              - action: notify.send_message
+                target:
+                  entity_id: !input error_notify_targets
+                data:
+                  title: '{{ notification_title }}'
+                  message: '{{ notification_message }}'
         default:
         - variables:
             notification_title: '{{ feeder_name }} feed completed'
@@ -386,12 +390,12 @@ actions:
         - choose:
           - conditions: '{{ success_notify_targets | count > 0 }}'
             sequence:
-              - action: notify.send_message
-                target:
-                  entity_id: !input success_notify_targets
-                data:
-                  title: '{{ notification_title }}'
-                  message: '{{ notification_message }}'
+            - action: notify.send_message
+              target:
+                entity_id: !input success_notify_targets
+              data:
+                title: '{{ notification_title }}'
+                message: '{{ notification_message }}'
     - conditions: '{{ result_event == ''feed_jammed'' }}'
       sequence:
       - variables:
@@ -403,12 +407,12 @@ actions:
       - choose:
         - conditions: '{{ error_notify_targets | count > 0 }}'
           sequence:
-            - action: notify.send_message
-              target:
-                entity_id: !input error_notify_targets
-              data:
-                title: '{{ notification_title }}'
-                message: '{{ notification_message }}'
+          - action: notify.send_message
+            target:
+              entity_id: !input error_notify_targets
+            data:
+              title: '{{ notification_title }}'
+              message: '{{ notification_message }}'
     - conditions: '{{ result_event == ''feed_rejected'' }}'
       sequence:
       - variables:
@@ -420,12 +424,12 @@ actions:
       - choose:
         - conditions: '{{ error_notify_targets | count > 0 }}'
           sequence:
-            - action: notify.send_message
-              target:
-                entity_id: !input error_notify_targets
-              data:
-                title: '{{ notification_title }}'
-                message: '{{ notification_message }}'
+          - action: notify.send_message
+            target:
+              entity_id: !input error_notify_targets
+            data:
+              title: '{{ notification_title }}'
+              message: '{{ notification_message }}'
     default:
     - variables:
         notification_title: '{{ feeder_name }} feed unconfirmed'
@@ -436,9 +440,9 @@ actions:
     - choose:
       - conditions: '{{ error_notify_targets | count > 0 }}'
         sequence:
-          - action: notify.send_message
-            target:
-              entity_id: !input error_notify_targets
-            data:
-              title: '{{ notification_title }}'
-              message: '{{ notification_message }}'
+        - action: notify.send_message
+          target:
+            entity_id: !input error_notify_targets
+          data:
+            title: '{{ notification_title }}'
+            message: '{{ notification_message }}'
