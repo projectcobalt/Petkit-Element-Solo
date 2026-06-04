@@ -53,6 +53,8 @@ wifi:
 
 captive_portal:
 
+improv_serial:
+
 dashboard_import:
   package_import_url: github://projectcobalt/petkit-element-solo/petkit-element-solo.yaml@main
   import_full_config: false
@@ -105,22 +107,16 @@ ota:
 
 logger:
   level: INFO
-  baud_rate: 0
+  baud_rate: 115200
+  hardware_uart: UART0
 
 debug:
 
 web_server:
   port: 80
 
-# Known but unused board UART pads. Keep disabled unless actively probing.
-# uart:
-#   id: petkit_uart
-#   tx_pin: GPIO1
-#   rx_pin: GPIO3
-#   baud_rate: 115200
-#   debug:
-#     direction: RX
-#     dummy_receiver: true
+# UART0 is exposed on the board's WiFi_TX0/WiFi_RX0 pads and is used by the
+# logger and Improv Serial for factory provisioning.
 
 i2c:
   sda:

@@ -15,8 +15,8 @@ configuration. It:
   remain unique.
 - Contains no Wi-Fi credentials, API encryption key, OTA password, or local IP
   address.
-- Provides Wi-Fi provisioning through the fallback access point and captive
-  portal.
+- Provides Wi-Fi provisioning through Improv Serial, the fallback access point,
+  and captive portal.
 - Advertises a `dashboard_import` URL so ESPHome can offer **Take Control**.
 
 The advertised adoption package uses:
