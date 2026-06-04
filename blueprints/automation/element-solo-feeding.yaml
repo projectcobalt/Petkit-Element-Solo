@@ -1,0 +1,329 @@
+blueprint:
+  name: Element Solo - Scheduled Feeding and Supervision
+  description: >
+    Schedule and supervise one ESPHome Element Solo feeder. Create one automation
+    from this blueprint for each feeder, or multiple automations for the same
+    feeder when different schedules require different portion counts.
+  domain: automation
+  author: projectcobalt
+  source_url: https://github.com/projectcobalt/petkit-element-solo/blob/main/blueprints/automation/element-solo-feeding.yaml
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    feeder:
+      name: Feeder
+      icon: mdi:food
+      collapsed: false
+      input:
+        feeder_name:
+          name: Feeder name
+          description: Friendly name used in notifications.
+          default: Petkit Element Solo
+          selector:
+            text:
+        feed_action:
+          name: ESPHome feed action
+          description: Action name exposed by ESPHome, for example esphome.element_solo_a1b2c3_feed.
+          selector:
+            text:
+        feeder_event:
+          name: Feeder event
+          selector:
+            entity:
+              filter:
+                - domain: event
+        feeder_state:
+          name: Feeder state
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        last_feed_portions:
+          name: Last feed portions
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        food_drop_pulses:
+          name: Food drop pulses
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+        battery_power_active:
+          name: Battery power active
+          selector:
+            entity:
+              filter:
+                - domain: binary_sensor
+        battery_voltage:
+          name: Battery pack voltage
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: voltage
+    schedule:
+      name: Schedule
+      icon: mdi:calendar-clock
+      collapsed: false
+      input:
+        schedule_triggers:
+          name: Feeding schedule
+          selector:
+            trigger:
+        feed_portions:
+          name: Feed portions
+          default: 1
+          selector:
+            number:
+              min: 1
+              max: 6
+              step: 1
+              mode: slider
+              unit_of_measurement: portions
+        feed_conditions:
+          name: Additional feed conditions
+          default: []
+          selector:
+            condition:
+        completion_timeout:
+          name: Completion timeout
+          default:
+            minutes: 2
+          selector:
+            duration:
+    warnings:
+      name: Warning thresholds
+      icon: mdi:alert-outline
+      collapsed: true
+      input:
+        low_battery_voltage:
+          name: Low battery voltage
+          default: 5.5
+          selector:
+            number:
+              min: 0
+              max: 10
+              step: 0.1
+              mode: box
+              unit_of_measurement: V
+        warning_delay:
+          name: Power warning delay
+          default:
+            minutes: 5
+          selector:
+            duration:
+    notifications:
+      name: Notifications
+      icon: mdi:bell-outline
+      collapsed: true
+      input:
+        error_notification_actions:
+          name: Error notification actions
+          default: []
+          selector:
+            action:
+        warning_notification_actions:
+          name: Power warning notification actions
+          default: []
+          selector:
+            action:
+        success_notification_actions:
+          name: Success notification actions
+          default: []
+          selector:
+            action:
+
+mode: single
+max_exceeded: silent
+
+variables:
+  feeder_name: !input feeder_name
+  feed_action: !input feed_action
+  feeder_event: !input feeder_event
+  feeder_state: !input feeder_state
+  last_feed_portions: !input last_feed_portions
+  food_drop_pulses: !input food_drop_pulses
+  battery_power_active: !input battery_power_active
+  battery_voltage: !input battery_voltage
+  feed_portions: !input feed_portions
+  low_battery_voltage: !input low_battery_voltage
+
+triggers:
+  - triggers: !input schedule_triggers
+  - trigger: state
+    entity_id: !input battery_power_active
+    to: "on"
+    for: !input warning_delay
+    id: battery_power
+  - trigger: numeric_state
+    entity_id: !input battery_voltage
+    below: !input low_battery_voltage
+    for: !input warning_delay
+    id: low_battery
+  - trigger: state
+    entity_id: !input feeder_event
+    attribute: event_type
+    to: feed_jammed
+    id: feeder_jammed
+  - trigger: state
+    entity_id: !input feeder_event
+    attribute: event_type
+    to: feed_rejected
+    id: feeder_rejected
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: battery_power
+        sequence:
+          - variables:
+              notification_title: "{{ feeder_name }} power warning"
+              notification_message: "{{ feeder_name }} is running on battery power. Check its DC power supply."
+          - choose:
+              - conditions: "{{ true }}"
+                sequence: !input warning_notification_actions
+      - conditions:
+          - condition: trigger
+            id: low_battery
+        sequence:
+          - variables:
+              notification_title: "{{ feeder_name }} low battery"
+              notification_message: "{{ feeder_name }} battery voltage is {{ states(battery_voltage) }} V, below the configured {{ low_battery_voltage }} V threshold."
+          - choose:
+              - conditions: "{{ true }}"
+                sequence: !input warning_notification_actions
+      - conditions:
+          - condition: trigger
+            id: feeder_jammed
+        sequence:
+          - variables:
+              notification_title: "{{ feeder_name }} jammed"
+              notification_message: "{{ feeder_name }} could not complete a feed after its anti-jam retries. Check the dispensing mechanism."
+          - choose:
+              - conditions: "{{ true }}"
+                sequence: !input error_notification_actions
+      - conditions:
+          - condition: trigger
+            id: feeder_rejected
+        sequence:
+          - variables:
+              notification_title: "{{ feeder_name }} feed rejected"
+              notification_message: "{{ feeder_name }} rejected a feed request because it was invalid or the feeder was already busy."
+          - choose:
+              - conditions: "{{ true }}"
+                sequence: !input error_notification_actions
+    default:
+      - condition: and
+        conditions: !input feed_conditions
+      - choose:
+          - conditions: >
+              {{ states(feeder_event) in ['unknown', 'unavailable'] or
+                 states(feeder_state) in ['unknown', 'unavailable'] or
+                 states(last_feed_portions) in ['unknown', 'unavailable'] or
+                 states(food_drop_pulses) in ['unknown', 'unavailable'] }}
+            sequence:
+              - variables:
+                  notification_title: "{{ feeder_name }} unavailable"
+                  notification_message: "{{ feeder_name }} could not be reached, so the scheduled feed was not attempted."
+              - choose:
+                  - conditions: "{{ true }}"
+                    sequence: !input error_notification_actions
+              - stop: Feeder entities are unavailable
+          - conditions: "{{ states(feeder_state) in ['Dispensing', 'Clearing jam'] }}"
+            sequence:
+              - variables:
+                  notification_title: "{{ feeder_name }} feed skipped"
+                  notification_message: "{{ feeder_name }} is already {{ states(feeder_state) | lower }}, so the scheduled feed was skipped."
+              - choose:
+                  - conditions: "{{ true }}"
+                    sequence: !input error_notification_actions
+              - stop: Feeder is busy
+          - conditions: "{{ states(feeder_state) == 'Jammed' }}"
+            sequence:
+              - variables:
+                  notification_title: "{{ feeder_name }} is jammed"
+                  notification_message: "{{ feeder_name }} has an unresolved jam, so the scheduled feed was not attempted."
+              - choose:
+                  - conditions: "{{ true }}"
+                    sequence: !input error_notification_actions
+              - stop: Feeder is jammed
+      - action: "{{ feed_action }}"
+        data:
+          portions: "{{ feed_portions | int }}"
+        continue_on_error: true
+      - wait_for_trigger:
+          - trigger: state
+            entity_id: !input feeder_event
+            attribute: event_type
+            to: feed_completed
+          - trigger: state
+            entity_id: !input feeder_event
+            attribute: event_type
+            to: feed_jammed
+          - trigger: state
+            entity_id: !input feeder_event
+            attribute: event_type
+            to: feed_rejected
+        timeout: !input completion_timeout
+        continue_on_timeout: true
+      - variables:
+          result_event: >
+            {{ 'timeout' if wait.trigger is none else
+               wait.trigger.to_state.attributes.event_type | default('unknown') }}
+      - choose:
+          - conditions: "{{ result_event == 'feed_completed' }}"
+            sequence:
+              - delay: 1s
+              - variables:
+                  reported_portions: "{{ states(last_feed_portions) | int(0) }}"
+                  reported_food_pulses: "{{ states(food_drop_pulses) | int(0) }}"
+              - choose:
+                  - conditions: "{{ (reported_portions | int) != (feed_portions | int) }}"
+                    sequence:
+                      - variables:
+                          notification_title: "{{ feeder_name }} portion mismatch"
+                          notification_message: "{{ feeder_name }} reported {{ reported_portions }} portions after a request for {{ feed_portions | int }}."
+                      - choose:
+                          - conditions: "{{ true }}"
+                            sequence: !input error_notification_actions
+                  - conditions: "{{ (reported_food_pulses | int) <= 0 }}"
+                    sequence:
+                      - variables:
+                          notification_title: "{{ feeder_name }} food not detected"
+                          notification_message: "{{ feeder_name }} completed {{ reported_portions }} portions but detected no food drops. Check the hopper and chute."
+                      - choose:
+                          - conditions: "{{ true }}"
+                            sequence: !input error_notification_actions
+                default:
+                  - variables:
+                      notification_title: "{{ feeder_name }} feed completed"
+                      notification_message: "{{ feeder_name }} completed {{ reported_portions }} portions and detected {{ reported_food_pulses }} food drop pulses."
+                  - choose:
+                      - conditions: "{{ true }}"
+                        sequence: !input success_notification_actions
+          - conditions: "{{ result_event == 'feed_jammed' }}"
+            sequence:
+              - variables:
+                  notification_title: "{{ feeder_name }} jammed"
+                  notification_message: "{{ feeder_name }} could not complete the scheduled feed after its anti-jam retries. Check the dispensing mechanism."
+              - choose:
+                  - conditions: "{{ true }}"
+                    sequence: !input error_notification_actions
+          - conditions: "{{ result_event == 'feed_rejected' }}"
+            sequence:
+              - variables:
+                  notification_title: "{{ feeder_name }} feed rejected"
+                  notification_message: "{{ feeder_name }} rejected the scheduled request for {{ feed_portions | int }} portions."
+              - choose:
+                  - conditions: "{{ true }}"
+                    sequence: !input error_notification_actions
+        default:
+          - variables:
+              notification_title: "{{ feeder_name }} feed unconfirmed"
+              notification_message: "{{ feeder_name }} did not confirm the scheduled feed before the timeout. Check its connection and feeder state."
+          - choose:
+              - conditions: "{{ true }}"
+                sequence: !input error_notification_actions
