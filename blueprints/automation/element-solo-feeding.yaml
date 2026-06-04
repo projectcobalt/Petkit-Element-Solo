@@ -18,15 +18,15 @@ blueprint:
       input:
         feeder_device:
           name: Feeder device
-          description: >-
-            Select the PETKIT Element Solo feeder to schedule and supervise.
+          description: Select the PETKIT Element Solo feeder to schedule and supervise.
             The blueprint discovers its entities automatically; keep their default
             entity ID suffixes.
           selector:
             device:
               filter:
-                - integration: esphome
-                  model: petkit-element-solo
+              - integration: esphome
+                model: petkit-element-solo
+              multiple: false
     schedule:
       name: Schedule
       icon: mdi:calendar-clock
@@ -125,39 +125,46 @@ mode: single
 max_exceeded: silent
 variables:
   feeder_device: !input feeder_device
-  feeder_name: '{{ device_attr(feeder_device, ''name_by_user'') or device_attr(feeder_device, ''name'') or ''Petkit Element Solo'' }}'
-  feed_now: '{{ device_entities(feeder_device) | select(''match'', ''^button\..*_feed_now$'') | list | first | default('''') }}'
-  feed_portions_entity: '{{ device_entities(feeder_device) | select(''match'', ''^number\..*_feed_portions$'') | list | first | default('''') }}'
-  feeder_event: '{{ device_entities(feeder_device) | select(''match'', ''^event\..*_feeder_event$'') | list | first | default('''') }}'
-  feeder_state: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_feeder_state$'') | list | first | default('''') }}'
-  last_feed_portions: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_last_feed_portions$'') | list | first | default('''') }}'
-  food_drop_pulses: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_food_drop_pulses$'') | list | first | default('''') }}'
-  battery_power_active: '{{ device_entities(feeder_device) | select(''match'', ''^binary_sensor\..*_battery_power_active$'') | list | first | default('''') }}'
-  battery_voltage: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_battery_pack_voltage$'') | list | first | default('''') }}'
+  feeder_name: '{{ device_attr(feeder_device, ''name_by_user'') or device_attr(feeder_device,
+    ''name'') or ''Petkit Element Solo'' }}'
+  feed_now: '{{ device_entities(feeder_device) | select(''match'', ''^button\..*_feed_now$'')
+    | list | first | default('''') }}'
+  feed_portions_entity: '{{ device_entities(feeder_device) | select(''match'', ''^number\..*_feed_portions$'')
+    | list | first | default('''') }}'
+  feeder_event: '{{ device_entities(feeder_device) | select(''match'', ''^event\..*_feeder_event$'')
+    | list | first | default('''') }}'
+  feeder_state: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_feeder_state$'')
+    | list | first | default('''') }}'
+  last_feed_portions: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_last_feed_portions$'')
+    | list | first | default('''') }}'
+  food_drop_pulses: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_food_drop_pulses$'')
+    | list | first | default('''') }}'
+  battery_power_active: '{{ device_entities(feeder_device) | select(''match'', ''^binary_sensor\..*_battery_power_active$'')
+    | list | first | default('''') }}'
+  battery_voltage: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_battery_pack_voltage$'')
+    | list | first | default('''') }}'
   feed_portions: !input feed_portions
   low_battery_voltage: !input low_battery_voltage
 triggers:
 - triggers: !input schedule_triggers
 - trigger: template
-  value_template: '{{ battery_power_active != '''' and is_state(battery_power_active, ''on'') }}'
+  value_template: '{{ battery_power_active != '''' and is_state(battery_power_active,
+    ''on'') }}'
   for: !input warning_delay
   id: battery_power
 - trigger: template
-  value_template: >-
-    {{ battery_voltage != '' and
-       states(battery_voltage) not in ['unknown', 'unavailable'] and
-       states(battery_voltage) | float(999) < low_battery_voltage | float }}
+  value_template: "{{ battery_voltage != '' and\n   states(battery_voltage) not in
+    ['unknown', 'unavailable'] and\n   states(battery_voltage) | float(999) < low_battery_voltage
+    | float }}"
   for: !input warning_delay
   id: low_battery
 - trigger: template
-  value_template: >-
-    {{ states(feeder_event) if feeder_event != '' and
-       state_attr(feeder_event, 'event_type') == 'feed_jammed' else false }}
+  value_template: "{{ states(feeder_event) if feeder_event != '' and\n   state_attr(feeder_event,
+    'event_type') == 'feed_jammed' else false }}"
   id: feeder_jammed
 - trigger: template
-  value_template: >-
-    {{ states(feeder_event) if feeder_event != '' and
-       state_attr(feeder_event, 'event_type') == 'feed_rejected' else false }}
+  value_template: "{{ states(feeder_event) if feeder_event != '' and\n   state_attr(feeder_event,
+    'event_type') == 'feed_rejected' else false }}"
   id: feeder_rejected
 actions:
 - choose:
@@ -217,10 +224,10 @@ actions:
   - condition: and
     conditions: !input feed_conditions
   - choose:
-    - conditions: "{{ feed_now == '' or feed_portions_entity == '' or\n   states(feeder_event) in ['unknown', 'unavailable'] or\n   states(feeder_state)
-        in ['unknown', 'unavailable'] or\n   states(last_feed_portions) in ['unknown',
-        'unavailable'] or\n   states(food_drop_pulses) in ['unknown', 'unavailable']
-        }}\n"
+    - conditions: "{{ feed_now == '' or feed_portions_entity == '' or\n   states(feeder_event)
+        in ['unknown', 'unavailable'] or\n   states(feeder_state) in ['unknown', 'unavailable']
+        or\n   states(last_feed_portions) in ['unknown', 'unavailable'] or\n   states(food_drop_pulses)
+        in ['unknown', 'unavailable'] }}\n"
       sequence:
       - variables:
           notification_title: '{{ feeder_name }} unavailable'
@@ -269,10 +276,9 @@ actions:
     continue_on_error: true
   - wait_for_trigger:
     - trigger: template
-      value_template: >-
-        {{ states(feeder_event) if feeder_event != '' and
-           state_attr(feeder_event, 'event_type') in
-           ['feed_completed', 'feed_jammed', 'feed_rejected'] else false }}
+      value_template: "{{ states(feeder_event) if feeder_event != '' and\n   state_attr(feeder_event,
+        'event_type') in\n   ['feed_completed', 'feed_jammed', 'feed_rejected'] else
+        false }}"
     timeout: !input completion_timeout
     continue_on_timeout: true
   - variables:
@@ -281,7 +287,7 @@ actions:
   - choose:
     - conditions: '{{ result_event == ''feed_completed'' }}'
       sequence:
-      - delay: 1s
+      - delay: "00:00:01"
       - variables:
           reported_portions: '{{ states(last_feed_portions) | int(0) }}'
           reported_food_pulses: '{{ states(food_drop_pulses) | int(0) }}'
