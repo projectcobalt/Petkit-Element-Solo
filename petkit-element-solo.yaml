@@ -103,6 +103,7 @@ api:
                           root["portions"] = portions;
 
 ota:
+  - platform: web_server
   - platform: esphome
 
 logger:
@@ -557,9 +558,14 @@ binary_sensor:
         then:
           - script.execute: restart_wifi
       - timing:
-          - ON for at least 2s
+          - ON for 2s to 8s
+          - OFF for at least 200ms
         then:
           - switch.toggle: wifi_control
+      - timing:
+          - ON for at least 10s
+        then:
+          - button.press: factory_reset_button
 
   - platform: gpio
     name: Battery Power Active
@@ -759,6 +765,10 @@ text_sensor:
     entity_category: diagnostic
 
 button:
+  - platform: factory_reset
+    id: factory_reset_button
+    internal: true
+
   - platform: template
     name: Feed Now
     icon: mdi:food
