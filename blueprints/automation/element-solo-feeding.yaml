@@ -26,7 +26,6 @@ blueprint:
             device:
               filter:
                 - integration: esphome
-                  manufacturer: projectcobalt
                   model: petkit-element-solo
     schedule:
       name: Schedule
@@ -218,7 +217,8 @@ actions:
   - condition: and
     conditions: !input feed_conditions
   - choose:
-    - conditions: "{{ feed_now == '' or feed_portions_entity == '' or\n   states(feeder_event) in ['unknown', 'unavailable'] or\n   states(feeder_state) in ['unknown', 'unavailable'] or\n   states(last_feed_portions) in ['unknown',
+    - conditions: "{{ feed_now == '' or feed_portions_entity == '' or\n   states(feeder_event) in ['unknown', 'unavailable'] or\n   states(feeder_state)
+        in ['unknown', 'unavailable'] or\n   states(last_feed_portions) in ['unknown',
         'unavailable'] or\n   states(food_drop_pulses) in ['unknown', 'unavailable']
         }}\n"
       sequence:
