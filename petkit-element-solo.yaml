@@ -1,0 +1,678 @@
+substitutions:
+  name: element-solo
+  friendly_name: Petkit Element Solo
+  manufacturer: PETKIT
+  model: D4-2
+  product_code: P570
+  max_scoops: "6"
+  dispense_timeout: 20s
+  anti_jam_reverse_time: 750ms
+  anti_jam_settle_time: 250ms
+  max_jam_retries: "2"
+  rtc_timer_minutes: "60"
+  adc_update_interval: 30s
+  time_zone: "Australia/Brisbane"
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: true
+  comment: "${manufacturer} Fresh Element Solo feeder, model ${model}, product code ${product_code}"
+  project:
+    name: projectcobalt.petkit-element-solo
+    version: "1.0.0"
+  on_boot:
+    priority: 800
+    then:
+      - light.turn_on:
+          id: status_led
+          effect: fast_blink
+      - pcf8563.read_time:
+          id: rtc_time
+      - delay: 250ms
+      - lambda: |-
+          if (id(persisted_feeder_state).empty()) {
+            id(persisted_feeder_state) = "Idle";
+          }
+          if (id(persisted_feeder_state) == "Dispensing" ||
+              id(persisted_feeder_state) == "Clearing jam") {
+            id(persisted_feeder_state) = "Interrupted";
+          }
+          id(feed_active) = false;
+          id(feeder_state).publish_state(id(persisted_feeder_state));
+          id(power_source).publish_state(id(battery_power_active).state ? "Battery" : "DC");
+      - script.execute: read_rtc_status
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ap:
+
+captive_portal:
+
+dashboard_import:
+  package_import_url: github://projectcobalt/petkit-element-solo/petkit-element-solo.yaml@main
+  import_full_config: false
+
+api:
+  actions:
+    - action: feed
+      variables:
+        portions: int
+      then:
+        - if:
+            condition:
+              lambda: return portions < 1 || portions > ${max_scoops};
+            then:
+              - event.trigger:
+                  id: feeder_event
+                  event_type: feed_rejected
+              - api.respond:
+                  success: false
+                  error_message: !lambda |-
+                    char message[64];
+                    snprintf(message, sizeof(message), "portions must be between 1 and %d", ${max_scoops});
+                    return std::string(message);
+            else:
+              - if:
+                  condition:
+                    or:
+                      - lambda: return id(feed_active);
+                      - switch.is_on: feed_forward
+                      - switch.is_on: feed_reverse
+                  then:
+                    - event.trigger:
+                        id: feeder_event
+                        event_type: feed_rejected
+                    - api.respond:
+                        success: false
+                        error_message: "feeder is already dispensing"
+                  else:
+                    - script.execute:
+                        id: dispense_scoops
+                        scoops: !lambda return portions;
+                    - api.respond:
+                        data: !lambda |-
+                          root["accepted"] = true;
+                          root["portions"] = portions;
+
+ota:
+  - platform: esphome
+
+logger:
+  level: INFO
+  baud_rate: 0
+
+debug:
+
+web_server:
+  port: 80
+
+i2c:
+  sda:
+    number: GPIO15
+    ignore_strapping_warning: true
+  scl: GPIO4
+  scan: false
+
+i2c_device:
+  - id: rtc_raw
+    address: 0x51
+
+time:
+  - platform: pcf8563
+    id: rtc_time
+    address: 0x51
+    timezone: ${time_zone}
+    update_interval: never
+  - platform: sntp
+    id: sntp_time
+    timezone: ${time_zone}
+    servers:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+      - 2.pool.ntp.org
+    on_time_sync:
+      then:
+        - pcf8563.write_time:
+            id: rtc_time
+        - logger.log:
+            level: WARN
+            tag: rtc
+            format: "Synced RTC from SNTP"
+        - script.execute: read_rtc_status
+
+output:
+  - platform: gpio
+    id: status_led_output
+    pin:
+      number: GPIO5
+      ignore_strapping_warning: true
+  - platform: ledc
+    id: rtttl_output
+    pin: GPIO16
+
+rtttl:
+  output: rtttl_output
+
+light:
+  - platform: binary
+    id: status_led
+    internal: true
+    output: status_led_output
+    effects:
+      - strobe:
+          name: fast_blink
+          colors:
+            - state: true
+              duration: 125ms
+            - state: false
+              duration: 125ms
+
+event:
+  - platform: template
+    id: feeder_event
+    name: Feeder Event
+    icon: mdi:bell-badge-outline
+    event_types:
+      - feed_started
+      - feed_completed
+      - feed_rejected
+      - anti_jam_started
+      - feed_jammed
+
+globals:
+  - id: target_scoops
+    type: int
+    initial_value: "0"
+  - id: scoops_count
+    type: int
+    initial_value: "0"
+  - id: food_sensor_count
+    type: int
+    initial_value: "0"
+  - id: jam_retry_count
+    type: int
+    initial_value: "0"
+  - id: feed_active
+    type: bool
+    initial_value: "false"
+  - id: last_dispensed_scoops
+    type: int
+    restore_value: true
+    initial_value: "0"
+  - id: last_food_sensor_count
+    type: int
+    restore_value: true
+    initial_value: "0"
+  - id: persisted_feeder_state
+    type: std::string
+    restore_value: true
+    initial_value: '"Idle"'
+    max_restore_data_length: 24
+
+script:
+  - id: play_rtttl
+    parameters:
+      song_str: string
+    then:
+      - if:
+          condition:
+            lambda: return !id(mute_sounds).state;
+          then:
+            - rtttl.play:
+                rtttl: !lambda return song_str;
+  - id: dispense_scoops
+    parameters:
+      scoops: int
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return scoops >= 1 && scoops <= ${max_scoops} && !id(feed_active) &&
+                     !id(feed_forward).state && !id(feed_reverse).state;
+          then:
+            - lambda: |-
+                id(feed_active) = true;
+                id(target_scoops) = scoops;
+                id(scoops_count) = 0;
+                id(food_sensor_count) = 0;
+                id(jam_retry_count) = 0;
+                id(persisted_feeder_state) = "Dispensing";
+                id(feeder_state).publish_state(id(persisted_feeder_state));
+                id(play_rtttl)->execute("start:d=16,o=6,b=100:e,g");
+            - event.trigger:
+                id: feeder_event
+                event_type: feed_started
+            - switch.turn_on: feed_forward
+            - script.execute: dispense_watchdog
+          else:
+            - event.trigger:
+                id: feeder_event
+                event_type: feed_rejected
+  - id: dispense_watchdog
+    mode: restart
+    then:
+      - delay: ${dispense_timeout}
+      - if:
+          condition:
+            switch.is_on: feed_forward
+          then:
+            - script.execute: anti_jam_recover
+  - id: anti_jam_recover
+    mode: single
+    then:
+      - switch.turn_off: feed_forward
+      - if:
+          condition:
+            lambda: return id(jam_retry_count) < ${max_jam_retries};
+          then:
+            - lambda: |-
+                id(jam_retry_count) += 1;
+                id(persisted_feeder_state) = "Clearing jam";
+                id(feeder_state).publish_state(id(persisted_feeder_state));
+                id(play_rtttl)->execute("jam:d=16,o=5,b=100:c,e,c");
+            - event.trigger:
+                id: feeder_event
+                event_type: anti_jam_started
+            - switch.turn_on: feed_reverse
+            - delay: ${anti_jam_reverse_time}
+            - switch.turn_off: feed_reverse
+            - delay: ${anti_jam_settle_time}
+            - lambda: |-
+                id(persisted_feeder_state) = "Dispensing";
+                id(feeder_state).publish_state(id(persisted_feeder_state));
+            - switch.turn_on: feed_forward
+            - script.execute: dispense_watchdog
+          else:
+            - lambda: |-
+                id(feed_active) = false;
+                id(last_dispensed_scoops) = id(scoops_count);
+                id(last_food_sensor_count) = id(food_sensor_count);
+                id(persisted_feeder_state) = "Jammed";
+                id(feeder_state).publish_state(id(persisted_feeder_state));
+                id(last_feed_portions).publish_state(id(last_dispensed_scoops));
+                id(food_drop_pulses).publish_state(id(last_food_sensor_count));
+                id(play_rtttl)->execute("jammed:d=8,o=5,b=100:c,c,c");
+            - event.trigger:
+                id: feeder_event
+                event_type: feed_jammed
+  - id: restart_wifi
+    mode: restart
+    then:
+      - lambda: id(play_rtttl)->execute("wifi:d=16,o=6,b=100:e");
+      - wifi.disable:
+      - delay: 3s
+      - wifi.enable:
+  - id: read_rtc_status
+    mode: single
+    then:
+      - lambda: |-
+          uint8_t cs2 = 0xFF;
+          uint8_t timer_control = 0xFF;
+          uint8_t timer_value = 0xFF;
+          bool ok_cs2 = id(rtc_raw).read_byte(0x01, &cs2);
+          bool ok_timer_control = id(rtc_raw).read_byte(0x0E, &timer_control);
+          bool ok_timer_value = id(rtc_raw).read_byte(0x0F, &timer_value);
+          if (!ok_cs2 || !ok_timer_control || !ok_timer_value) {
+            ESP_LOGE("rtc", "RTC read failed");
+            return;
+          }
+          bool tf = cs2 & 0x04;
+          bool tie = cs2 & 0x01;
+          bool te = timer_control & 0x80;
+          uint8_t td = timer_control & 0x03;
+          uint8_t tc_func = timer_control & 0x83;
+          bool interrupt_feedback = tie && te && (td == 3);
+          id(rtc_timer_interrupt).publish_state(interrupt_feedback);
+          char status[120];
+          snprintf(status, sizeof(status), "CS2=0x%02X TCraw=0x%02X TCfunc=0x%02X TV=%u TF=%d TIE=%d TE=%d TD=%u", cs2, timer_control, tc_func, timer_value, tf, tie, te, td);
+          ESP_LOGW("rtc", "%s", status);
+  - id: disable_rtc_timer_interrupt
+    mode: single
+    then:
+      - lambda: |-
+          uint8_t cs2 = 0xFF;
+          bool ok_read = id(rtc_raw).read_byte(0x01, &cs2);
+          bool ok_cs2 = false;
+          if (ok_read) {
+            cs2 &= ~0x05;
+            ok_cs2 = id(rtc_raw).write_byte(0x01, cs2);
+          }
+          bool ok_timer = id(rtc_raw).write_byte(0x0E, 0x00);
+          ESP_LOGW("rtc", "Disabled RTC timer interrupt: CS2 read=%d write=%d Timer control ok=%d", ok_read, ok_cs2, ok_timer);
+      - delay: 250ms
+      - script.execute: read_rtc_status
+  - id: enable_rtc_timer_interrupt
+    mode: single
+    then:
+      - lambda: |-
+          uint8_t minutes = ${rtc_timer_minutes};
+          if (minutes < 1) minutes = 1;
+          uint8_t cs2 = 0xFF;
+          bool ok_read = id(rtc_raw).read_byte(0x01, &cs2);
+          bool ok_clear = false;
+          if (ok_read) {
+            cs2 &= ~0x05;
+            ok_clear = id(rtc_raw).write_byte(0x01, cs2);
+          }
+          bool ok_value = id(rtc_raw).write_byte(0x0F, minutes);
+          bool ok_timer = id(rtc_raw).write_byte(0x0E, 0x83);
+          if (ok_read) cs2 |= 0x01;
+          bool ok_cs2 = ok_read && id(rtc_raw).write_byte(0x01, cs2);
+          ESP_LOGW("rtc", "Enabled RTC timer interrupt: minutes=%u clear ok=%d value ok=%d timer ok=%d CS2 ok=%d", minutes, ok_clear, ok_value, ok_timer, ok_cs2);
+      - delay: 250ms
+      - script.execute: read_rtc_status
+  - id: sync_rtc_from_sntp
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: return id(sntp_time).now().is_valid();
+          then:
+            - pcf8563.write_time:
+                id: rtc_time
+            - logger.log:
+                level: WARN
+                tag: rtc
+                format: "Synced RTC from SNTP/system time"
+            - delay: 250ms
+            - script.execute: read_rtc_status
+          else:
+            - logger.log:
+                level: WARN
+                tag: rtc
+                format: "SNTP/system time invalid, RTC sync skipped"
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - light.turn_on:
+                id: status_led
+                effect: none
+          else:
+            - light.turn_on:
+                id: status_led
+                effect: fast_blink
+  - interval: 10min
+    then:
+      - script.execute: read_rtc_status
+  - interval: 6h
+    then:
+      - script.execute: sync_rtc_from_sntp
+
+binary_sensor:
+  - platform: gpio
+    name: Manual Feed Button
+    id: manual_feed_button
+    icon: mdi:gesture-tap-button
+    pin:
+      number: GPIO34
+      inverted: true
+    on_press:
+      then:
+        - script.execute:
+            id: dispense_scoops
+            scoops: !lambda return (int) id(manual_dispense_scoops).state;
+  - platform: gpio
+    name: Motor Sensor
+    id: motor_sensor
+    icon: mdi:rotate-360
+    pin:
+      number: GPIO27
+      inverted: true
+    on_press:
+      then:
+        - lambda: |-
+            if (!id(feed_active) || !id(feed_forward).state) return;
+            id(scoops_count) += 1;
+            if (id(scoops_count) >= id(target_scoops)) {
+              id(dispense_watchdog).stop();
+              id(feed_forward).turn_off();
+              id(feed_active) = false;
+              id(last_dispensed_scoops) = id(scoops_count);
+              id(last_food_sensor_count) = id(food_sensor_count);
+              id(jam_retry_count) = 0;
+              id(persisted_feeder_state) = "Idle";
+              id(feeder_state).publish_state(id(persisted_feeder_state));
+              id(last_feed_portions).publish_state(id(last_dispensed_scoops));
+              id(food_drop_pulses).publish_state(id(last_food_sensor_count));
+              id(play_rtttl)->execute("done:d=16,o=6,b=100:g,e");
+              id(feeder_event).trigger("feed_completed");
+            }
+  - platform: gpio
+    name: Food Optical Sensor
+    id: food_optical_sensor
+    icon: mdi:food-apple-outline
+    pin: GPIO14
+    on_press:
+      then:
+        - lambda: id(food_sensor_count) += 1;
+  - platform: gpio
+    id: wifi_button
+    internal: true
+    pin:
+      number: GPIO0
+      mode: INPUT
+      inverted: true
+      ignore_strapping_warning: true
+    on_multi_click:
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 200ms
+        then:
+          - script.execute: restart_wifi
+      - timing:
+          - ON for at least 2s
+        then:
+          - switch.toggle: wifi_control
+  - platform: gpio
+    name: Battery Power Active
+    id: battery_power_active
+    icon: mdi:battery-charging
+    device_class: power
+    pin:
+      number: GPIO21
+      mode: INPUT
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    on_state:
+      then:
+        - text_sensor.template.publish:
+            id: power_source
+            state: !lambda return x ? "Battery" : "DC";
+
+number:
+  - platform: template
+    id: manual_dispense_scoops
+    name: Feed Portions
+    icon: mdi:cup
+    min_value: 1
+    max_value: ${max_scoops}
+    initial_value: 1
+    optimistic: true
+    restore_value: true
+    step: 1
+    mode: slider
+    unit_of_measurement: scoops
+
+switch:
+  - platform: template
+    id: mute_sounds
+    name: Mute Sounds
+    icon: mdi:volume-off
+    entity_category: config
+    optimistic: true
+  - platform: template
+    id: wifi_control
+    name: WiFi Control
+    icon: mdi:wifi
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - wifi.enable:
+    turn_off_action:
+      - wifi.disable:
+  - platform: template
+    id: rtc_timer_interrupt
+    name: RTC Timer Interrupt
+    icon: mdi:timer-alert-outline
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - script.execute: enable_rtc_timer_interrupt
+    turn_off_action:
+      - script.execute: disable_rtc_timer_interrupt
+  - platform: gpio
+    id: enable_sensors
+    name: Sensor Power
+    icon: mdi:leak
+    entity_category: diagnostic
+    disabled_by_default: true
+    pin: GPIO33
+    restore_mode: ALWAYS_ON
+  - platform: gpio
+    id: enable_feeder_motor
+    name: Motor Enable
+    icon: mdi:engine
+    entity_category: diagnostic
+    disabled_by_default: true
+    pin: GPIO19
+    restore_mode: ALWAYS_OFF
+  - platform: gpio
+    id: feed_forward
+    pin: GPIO18
+    restore_mode: ALWAYS_OFF
+    internal: true
+    interlock: &motor_interlock [feed_forward, feed_reverse]
+    on_turn_on:
+      then:
+        - switch.turn_on: enable_feeder_motor
+    on_turn_off:
+      then:
+        - switch.turn_off: enable_feeder_motor
+  - platform: gpio
+    id: feed_reverse
+    pin: GPIO17
+    restore_mode: ALWAYS_OFF
+    internal: true
+    interlock: *motor_interlock
+    on_turn_on:
+      then:
+        - switch.turn_on: enable_feeder_motor
+    on_turn_off:
+      then:
+        - switch.turn_off: enable_feeder_motor
+
+sensor:
+  - platform: template
+    id: last_feed_portions
+    name: Last Feed Portions
+    icon: mdi:cup
+    unit_of_measurement: portions
+    accuracy_decimals: 0
+    lambda: return id(last_dispensed_scoops);
+  - platform: adc
+    name: Battery Pack Voltage
+    pin: GPIO36
+    icon: mdi:battery
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 2
+    attenuation: 12db
+    update_interval: ${adc_update_interval}
+    filters:
+      - multiply: 3.0
+  - platform: adc
+    name: DC Input Voltage
+    pin: GPIO39
+    icon: mdi:power-plug
+    device_class: voltage
+    state_class: measurement
+    unit_of_measurement: V
+    accuracy_decimals: 2
+    attenuation: 12db
+    update_interval: ${adc_update_interval}
+    filters:
+      - multiply: 3.0
+  - platform: wifi_signal
+    name: WiFi Signal
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: template
+    id: food_drop_pulses
+    name: Food Drop Pulses
+    icon: mdi:counter
+    accuracy_decimals: 0
+    lambda: return id(last_food_sensor_count);
+
+text_sensor:
+  - platform: template
+    id: feeder_state
+    name: Feeder State
+    icon: mdi:state-machine
+  - platform: debug
+    reset_reason:
+      name: Restart Reason
+      icon: mdi:restart-alert
+      entity_category: diagnostic
+  - platform: template
+    name: Device Time
+    icon: mdi:clock-outline
+    entity_category: diagnostic
+    lambda: |-
+      auto now = id(rtc_time).now();
+      if (!now.is_valid()) return {"Unknown"};
+      char time_string[20];
+      snprintf(time_string, sizeof(time_string), "%04u-%02u-%02u %02u:%02u:%02u", now.year, now.month, now.day_of_month, now.hour, now.minute, now.second);
+      return {time_string};
+  - platform: template
+    name: Power Source
+    id: power_source
+    icon: mdi:power-plug-battery
+    entity_category: diagnostic
+
+button:
+  - platform: template
+    name: Feed Now
+    icon: mdi:food
+    on_press:
+      then:
+        - script.execute:
+            id: dispense_scoops
+            scoops: !lambda return (int) id(manual_dispense_scoops).state;
+  - platform: template
+    name: Jog Motor Forward
+    icon: mdi:rotate-right
+    entity_category: diagnostic
+    disabled_by_default: true
+    on_press:
+      then:
+        - switch.turn_on: feed_forward
+        - delay: 500ms
+        - switch.turn_off: feed_forward
+  - platform: template
+    name: Jog Motor Reverse
+    icon: mdi:rotate-left
+    entity_category: diagnostic
+    disabled_by_default: true
+    on_press:
+      then:
+        - switch.turn_on: feed_reverse
+        - delay: 500ms
+        - switch.turn_off: feed_reverse
+  - platform: restart
+    name: Restart
+    entity_category: diagnostic
