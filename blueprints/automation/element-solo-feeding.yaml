@@ -1,6 +1,8 @@
 blueprint:
   name: Element Solo - Scheduled Feeding and Supervision
-  description: 'Schedule and supervise one ESPHome Element Solo feeder. Create one
+  description: 'Version 1.1.0.
+
+    Schedule and supervise one ESPHome Element Solo feeder. Create one
     automation from this blueprint for each feeder, or multiple automations for the
     same feeder when different schedules require different portion counts.
 

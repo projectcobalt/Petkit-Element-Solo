@@ -6,6 +6,8 @@ PETKIT Fresh Element Solo feeder, model D4-2 / product code P570.
 This is an independent community project. It is not affiliated with or endorsed
 by PETKIT.
 
+Current release: `v1.1.0`
+
 ## What This Project Provides
 
 This project turns the Element Solo into a locally managed ESPHome feeder with
@@ -45,6 +47,17 @@ https://raw.githubusercontent.com/projectcobalt/petkit-element-solo/main/petkit-
 After flashing and provisioning, use **Take Control** in the ESPHome dashboard.
 ESPHome will create an individual per-device YAML for future OTA updates. Keep
 that adopted device YAML separate from this reusable factory package.
+
+## Versions And Updates
+
+Firmware package versions are tracked in the ESPHome project metadata and in
+GitHub releases. Existing adopted ESPHome YAMLs that import the package from
+`@main` will compile against the latest package content the next time they are
+validated or built.
+
+Home Assistant blueprints are different: Home Assistant does not automatically
+replace an imported blueprint when the GitHub file changes. Re-import the
+blueprint after repository updates, then reload automations.
 
 ## Home Assistant Blueprint
 
@@ -98,6 +111,8 @@ supervise feeding without relying on the original PETKIT cloud behavior.
 
 - [ESPHome Devices: Petkit Fresh Element Solo Pet Feeder](https://devices.esphome.io/devices/petkit-fresh-element-solo-pet-feeder/)
 - [n6ham ESPHome configuration](https://github.com/n6ham/esphome-configs/blob/master/petkit-fresh-element-solo.yaml)
+- [Triskae ESPHome configuration gist](https://gist.github.com/Triskae/efab9c34f88badd7c37a06d208b513d7)
+- [foxey ESPHome configuration gist](https://gist.github.com/foxey/d9aa8b711ad1a76d3b5271c54302ca09)
 - [Reddit: ESPHome on Petkit Solo Feeder](https://www.reddit.com/r/Esphome/comments/v19c7p/esphome_on_petkit_solo_feeder/)
 - [Reddit: ESPHome on Petkit Solo Feeder, follow-up](https://www.reddit.com/r/Esphome/comments/108nqwc/esphome_on_petkit_solo_feeder_credits_to/)
 - [ESPHome dashboard import documentation](https://esphome.io/components/dashboard_import/)
