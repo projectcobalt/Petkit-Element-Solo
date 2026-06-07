@@ -104,8 +104,6 @@ supervise feeding without relying on the original PETKIT cloud behavior.
   sleep policy remains future work.
 - Food-drop verification requires the Food Drop Pulses entity to be enabled in
   Home Assistant.
-- The repository must remain public for ESPHome dashboard import and Home
-  Assistant blueprint import links to work.
 
 ## Sources
 
