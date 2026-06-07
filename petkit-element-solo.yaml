@@ -11,7 +11,13 @@ substitutions:
   max_jam_retries: "2"
   rtc_timer_minutes: "60"
   adc_update_interval: 30s
+  motor_pulse_lockout_ms: "500"
   time_zone: "Australia/Brisbane"
+  sound_feed_start: "start:d=16,o=6,b=100:e,g"
+  sound_feed_done: "done:d=16,o=6,b=100:g,e"
+  sound_jam_recover: "jam:d=16,o=5,b=100:c,e,c"
+  sound_jammed: "jammed:d=8,o=5,b=100:c,c,c"
+  sound_wifi: "wifi:d=16,o=6,b=100:e"
 
 esphome:
   name: ${name}
@@ -40,6 +46,7 @@ esphome:
           }
           id(feed_active) = false;
           id(feeder_state).publish_state(id(persisted_feeder_state));
+          id(food_state).publish_state(id(persisted_food_state));
           id(power_source).publish_state(id(battery_power_active).state ? "Battery" : "DC");
       - script.execute: read_rtc_status
     
@@ -170,6 +177,13 @@ output:
 rtttl:
   output: rtttl_output
 
+deep_sleep:
+  id: feeder_deep_sleep
+  wakeup_pin:
+    number: GPIO34
+    inverted: true
+    allow_other_uses: true
+
 light:
   - platform: binary
     id: status_led
@@ -183,6 +197,13 @@ light:
               duration: 125ms
             - state: false
               duration: 125ms
+      - strobe:
+          name: slow_blink
+          colors:
+            - state: true
+              duration: 500ms
+            - state: false
+              duration: 500ms
 
 event:
   - platform: template
@@ -206,6 +227,9 @@ globals:
   - id: food_sensor_count
     type: int
     initial_value: "0"
+  - id: last_motor_pulse_ms
+    type: uint32_t
+    initial_value: "0"
   - id: jam_retry_count
     type: int
     initial_value: "0"
@@ -224,6 +248,11 @@ globals:
     type: std::string
     restore_value: true
     initial_value: '"Idle"'
+    max_restore_data_length: 24
+  - id: persisted_food_state
+    type: std::string
+    restore_value: true
+    initial_value: '"Unknown"'
     max_restore_data_length: 24
 
 script:
@@ -257,10 +286,13 @@ script:
                 id(target_scoops) = scoops;
                 id(scoops_count) = 0;
                 id(food_sensor_count) = 0;
+                id(last_motor_pulse_ms) = 0;
                 id(jam_retry_count) = 0;
                 id(persisted_feeder_state) = "Dispensing";
+                id(persisted_food_state) = "Checking";
                 id(feeder_state).publish_state(id(persisted_feeder_state));
-                id(play_rtttl)->execute("start:d=16,o=6,b=100:e,g");
+                id(food_state).publish_state(id(persisted_food_state));
+                id(play_rtttl)->execute("${sound_feed_start}");
             - event.trigger:
                 id: feeder_event
                 event_type: feed_started
@@ -293,7 +325,7 @@ script:
                 id(jam_retry_count) += 1;
                 id(persisted_feeder_state) = "Clearing jam";
                 id(feeder_state).publish_state(id(persisted_feeder_state));
-                id(play_rtttl)->execute("jam:d=16,o=5,b=100:c,e,c");
+                id(play_rtttl)->execute("${sound_jam_recover}");
             - event.trigger:
                 id: feeder_event
                 event_type: anti_jam_started
@@ -312,10 +344,12 @@ script:
                 id(last_dispensed_scoops) = id(scoops_count);
                 id(last_food_sensor_count) = id(food_sensor_count);
                 id(persisted_feeder_state) = "Jammed";
+                id(persisted_food_state) = "Unknown";
                 id(feeder_state).publish_state(id(persisted_feeder_state));
+                id(food_state).publish_state(id(persisted_food_state));
                 id(last_feed_portions).publish_state(id(last_dispensed_scoops));
                 id(food_drop_pulses).publish_state(id(last_food_sensor_count));
-                id(play_rtttl)->execute("jammed:d=8,o=5,b=100:c,c,c");
+                id(play_rtttl)->execute("${sound_jammed}");
             - event.trigger:
                 id: feeder_event
                 event_type: feed_jammed
@@ -323,10 +357,36 @@ script:
   - id: restart_wifi
     mode: restart
     then:
-      - lambda: id(play_rtttl)->execute("wifi:d=16,o=6,b=100:e");
+      - lambda: id(play_rtttl)->execute("${sound_wifi}");
       - wifi.disable:
       - delay: 3s
       - wifi.enable:
+
+  - id: update_status_led
+    mode: restart
+    then:
+      - if:
+          condition:
+            or:
+              - switch.is_on: feed_forward
+              - switch.is_on: feed_reverse
+              - lambda: return id(feed_active);
+          then:
+            - light.turn_on:
+                id: status_led
+                effect: slow_blink
+          else:
+            - if:
+                condition:
+                  wifi.connected:
+                then:
+                  - light.turn_on:
+                      id: status_led
+                      effect: none
+                else:
+                  - light.turn_on:
+                      id: status_led
+                      effect: fast_blink
   
   - id: read_rtc_status
     mode: single
@@ -469,17 +529,7 @@ script:
 interval:
   - interval: 1s
     then:
-      - if:
-          condition:
-            wifi.connected:
-          then:
-            - light.turn_on:
-                id: status_led
-                effect: none
-          else:
-            - light.turn_on:
-                id: status_led
-                effect: fast_blink
+      - script.execute: update_status_led
 
   - interval: 10min
     then:
@@ -498,6 +548,7 @@ binary_sensor:
     pin:
       number: GPIO34
       inverted: true
+      allow_other_uses: true
     on_press:
       then:
         - script.execute:
@@ -518,6 +569,13 @@ binary_sensor:
               return;
             }
 
+            const uint32_t now = millis();
+            if (id(last_motor_pulse_ms) != 0 &&
+                now - id(last_motor_pulse_ms) < ${motor_pulse_lockout_ms}) {
+              return;
+            }
+            id(last_motor_pulse_ms) = now;
+
             id(scoops_count) += 1;
             if (id(scoops_count) >= id(target_scoops)) {
               id(dispense_watchdog).stop();
@@ -527,10 +585,12 @@ binary_sensor:
               id(last_food_sensor_count) = id(food_sensor_count);
               id(jam_retry_count) = 0;
               id(persisted_feeder_state) = "Idle";
+              id(persisted_food_state) = id(last_food_sensor_count) > 0 ? "Food detected" : "Food not detected";
               id(feeder_state).publish_state(id(persisted_feeder_state));
+              id(food_state).publish_state(id(persisted_food_state));
               id(last_feed_portions).publish_state(id(last_dispensed_scoops));
               id(food_drop_pulses).publish_state(id(last_food_sensor_count));
-              id(play_rtttl)->execute("done:d=16,o=6,b=100:g,e");
+              id(play_rtttl)->execute("${sound_feed_done}");
               id(feeder_event).trigger("feed_completed");
             }
 
@@ -541,7 +601,12 @@ binary_sensor:
     pin: GPIO14
     on_press:
       then:
-        - lambda: id(food_sensor_count) += 1;
+        - lambda: |-
+            id(food_sensor_count) += 1;
+            if (id(feed_active)) {
+              id(persisted_food_state) = "Food detected";
+              id(food_state).publish_state(id(persisted_food_state));
+            }
 
   - platform: gpio
     id: wifi_button
@@ -685,6 +750,7 @@ sensor:
     lambda: return id(last_dispensed_scoops);
 
   - platform: adc
+    id: battery_pack_voltage
     name: Battery Pack Voltage
     pin: GPIO36
     icon: mdi:battery
@@ -696,6 +762,41 @@ sensor:
     update_interval: ${adc_update_interval}
     filters:
       - multiply: 3.0
+
+  - platform: template
+    id: battery_pack_level
+    name: Battery Pack Level
+    icon: mdi:battery-medium
+    device_class: battery
+    state_class: measurement
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+    update_interval: ${adc_update_interval}
+    lambda: |-
+      if (isnan(id(battery_pack_voltage).state)) {
+        return NAN;
+      }
+      return id(battery_pack_voltage).state;
+    filters:
+      - calibrate_linear:
+          method: exact
+          datapoints:
+            - 0.0 -> 0.0
+            - 5.2 -> 0.0
+            - 5.5 -> 1.0
+            - 5.8 -> 10.0
+            - 5.95 -> 20.0
+            - 6.05 -> 30.0
+            - 6.15 -> 40.0
+            - 6.3 -> 50.0
+            - 6.4 -> 60.0
+            - 6.6 -> 70.0
+            - 6.85 -> 80.0
+            - 7.15 -> 90.0
+            - 7.5 -> 100.0
+      - clamp:
+          min_value: 0
+          max_value: 100
 
   - platform: adc
     name: DC Input Voltage
@@ -728,6 +829,11 @@ text_sensor:
     id: feeder_state
     name: Feeder State
     icon: mdi:state-machine
+
+  - platform: template
+    id: food_state
+    name: Food State
+    icon: mdi:food-apple-outline
 
   - platform: debug
     reset_reason:

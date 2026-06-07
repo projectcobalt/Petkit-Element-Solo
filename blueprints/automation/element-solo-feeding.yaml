@@ -140,7 +140,7 @@ variables:
     | list | first | default('''') }}'
   feeder_event: '{{ device_entities(feeder_device) | select(''match'', ''^event\..*_feeder_event$'')
     | list | first | default('''') }}'
-  feeder_state: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_feeder_state$'')
+  feeder_state: '{{ device_entities(feeder_device) | select(''match'', ''^(sensor|text_sensor)\..*_feeder_state$'')
     | list | first | default('''') }}'
   last_feed_portions: '{{ device_entities(feeder_device) | select(''match'', ''^sensor\..*_last_feed_portions$'')
     | list | first | default('''') }}'
@@ -322,15 +322,18 @@ actions:
       entity_id: '{{ feed_portions_entity }}'
     data:
       value: '{{ feed_portions | int }}'
+  - variables:
+      previous_feeder_event_state: '{{ states(feeder_event) if feeder_event != ''''
+        else '''' }}'
   - action: button.press
     target:
       entity_id: '{{ feed_now }}'
     continue_on_error: true
   - wait_for_trigger:
     - trigger: template
-      value_template: "{{ states(feeder_event) if feeder_event != '' and\n   state_attr(feeder_event,
-        'event_type') in\n   ['feed_completed', 'feed_jammed', 'feed_rejected'] else
-        false }}"
+      value_template: "{{ feeder_event != '' and\n   states(feeder_event) != previous_feeder_event_state
+        and\n   state_attr(feeder_event, 'event_type') in\n   ['feed_completed',
+        'feed_jammed', 'feed_rejected'] }}"
     timeout: !input completion_timeout
     continue_on_timeout: true
   - variables:

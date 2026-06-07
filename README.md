@@ -1,34 +1,40 @@
 # PETKIT Fresh Element Solo for ESPHome
 
-ESPHome configuration and Home Assistant automation blueprint for the PETKIT
-Fresh Element Solo feeder, model D4-2 / product code P570.
+Reusable ESPHome firmware and a Home Assistant automation blueprint for the
+PETKIT Fresh Element Solo feeder, model D4-2 / product code P570.
 
 This is an independent community project. It is not affiliated with or endorsed
 by PETKIT.
 
-## ESPHome configuration
+## What This Project Provides
 
-The repository's `petkit-element-solo.yaml` is a reusable factory/adoption
-configuration. It:
+This project turns the Element Solo into a locally managed ESPHome feeder with
+Home Assistant supervision. The firmware exposes the feeder hardware as normal
+ESPHome entities, and the blueprint uses those entities to schedule feeds,
+confirm outcomes, and notify when something needs attention.
 
-- Uses the base node name `element-solo` with a MAC suffix so multiple feeders
-  remain unique.
-- Contains no Wi-Fi credentials, API encryption key, OTA password, or local IP
-  address.
-- Provides Wi-Fi provisioning through Improv Serial, the fallback access point,
-  and captive portal.
-- Advertises a `dashboard_import` URL so ESPHome can offer **Take Control**.
+Current project outcomes:
 
-The advertised adoption package uses:
+- Local feed control through ESPHome with configurable portion counts.
+- Feed completion events for completed, jammed, and rejected feed attempts.
+- Home Assistant scheduling and supervision through a reusable blueprint.
+- Food-drop pulse monitoring with a persistent Food State surface.
+- Feeder State, Last Feed Portions, Food Drop Pulses, Battery Pack Voltage,
+  Battery Pack Level, DC Input Voltage, Battery Power Active, and diagnostic
+  restart information.
+- Anti-jam handling, motor pulse lockout, and feed/reverse motor control.
+- Status LED behavior for active feeding, Wi-Fi connected, and Wi-Fi
+  disconnected states.
+- Basic sound feedback through tunable RTTTL substitutions.
+- A dormant deep-sleep foundation using the manual feed button as a wake pin.
+
+## Install And Adoption
+
+The reusable ESPHome package is:
 
 ```text
 github://projectcobalt/petkit-element-solo/petkit-element-solo.yaml@main
 ```
-
-After flashing and provisioning the feeder, use **Take Control** in the ESPHome
-dashboard. ESPHome will create an individual per-device YAML. Keep that managed
-device YAML for future OTA updates; do not replace it with this generic factory
-file.
 
 Raw configuration URL:
 
@@ -36,29 +42,57 @@ Raw configuration URL:
 https://raw.githubusercontent.com/projectcobalt/petkit-element-solo/main/petkit-element-solo.yaml
 ```
 
-## Home Assistant blueprint
+After flashing and provisioning, use **Take Control** in the ESPHome dashboard.
+ESPHome will create an individual per-device YAML for future OTA updates. Keep
+that adopted device YAML separate from this reusable factory package.
 
-The blueprint schedules and supervises feeding, verifies completion, and can
-notify for jams, rejected feeds, power loss, low battery, or missing food-drop
-pulses.
+## Home Assistant Blueprint
+
+The included blueprint schedules feeds and supervises the result. It discovers
+the feeder's ESPHome entities from a single device selector, sets Feed Portions,
+presses Feed Now, waits for a new feeder event, and branches on the reported
+event type.
+
+It can notify for:
+
+- Jams or rejected feeds.
+- Unavailable feeder entities.
+- Feed completion that reports the wrong portion count.
+- Completed dry runs where no food-drop pulses were detected.
+- Power-source warnings and low battery voltage.
+- Optional successful feed confirmation.
 
 [Import the blueprint into Home Assistant](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fprojectcobalt%2Fpetkit-element-solo%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Felement-solo-feeding.yaml)
 
-Create one automation from the blueprint for each feeder. The ESPHome feed
-action will be named similarly to:
+## Hardware Findings
 
-```text
-esphome.element_solo_a1b2c3_feed
-```
+The project is based on community ESPHome work for the PETKIT Fresh Element
+Solo and follow-up testing on a real feeder. The supported hardware exposes:
 
-## Important notes
+- Motor forward and reverse control.
+- A cam or portion pulse input used to count dispensed portions.
+- A food-drop sensor pulse input.
+- Battery-pack and DC-input voltage sensing.
+- Battery/DC power-source state.
+- Manual feed and Wi-Fi/provisioning buttons.
+- A status LED and piezo buzzer.
 
-- This configuration replaces the original PETKIT firmware.
-- Confirm your hardware matches the supported model before flashing.
-- The repository must remain public for `dashboard_import` and the Home
-  Assistant blueprint import link to work.
-- The default timezone is `Australia/Brisbane`; change the `time_zone`
-  substitution for your location.
+The firmware preserves these hardware surfaces in ESPHome so Home Assistant can
+supervise feeding without relying on the original PETKIT cloud behavior.
+
+## Current Boundaries
+
+- Flashing this firmware replaces the original PETKIT firmware.
+- Confirm your hardware matches the supported Element Solo model before
+  flashing.
+- Low-food detection is currently based on food-drop pulses during feeding; a
+  calibrated hopper-level model is future work.
+- Deep sleep is prepared but not automatically entered yet; scheduling a safe
+  sleep policy remains future work.
+- Food-drop verification requires the Food Drop Pulses entity to be enabled in
+  Home Assistant.
+- The repository must remain public for ESPHome dashboard import and Home
+  Assistant blueprint import links to work.
 
 ## Sources
 
