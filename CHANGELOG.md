@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.0
+
+- Added a Child Lock switch that prevents the physical side button from starting
+  a manual feed while leaving Home Assistant and API feed requests available.
+
 ## v1.1.0
 
 - Added motor pulse lockout for more reliable portion counting.

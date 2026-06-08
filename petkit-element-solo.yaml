@@ -26,7 +26,7 @@ esphome:
   comment: "${manufacturer} Fresh Element Solo feeder, model ${model}, product code ${product_code}"
   project:
     name: projectcobalt.petkit-element-solo
-    version: "1.1.0"
+    version: "1.2.0"
   on_boot:
     priority: 800
     then:
@@ -551,9 +551,18 @@ binary_sensor:
       allow_other_uses: true
     on_press:
       then:
-        - script.execute:
-            id: dispense_scoops
-            scoops: !lambda return (int) id(manual_dispense_scoops).state;
+        - if:
+            condition:
+              switch.is_off: child_lock
+            then:
+              - script.execute:
+                  id: dispense_scoops
+                  scoops: !lambda return (int) id(manual_dispense_scoops).state;
+            else:
+              - logger.log:
+                  level: INFO
+                  tag: child_lock
+                  format: "Manual feed button ignored because child lock is enabled"
 
   - platform: gpio
     name: Motor Sensor
@@ -665,6 +674,14 @@ number:
     unit_of_measurement: scoops
 
 switch:
+  - platform: template
+    id: child_lock
+    name: Child Lock
+    icon: mdi:account-lock
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
   - platform: template
     id: mute_sounds
     name: Mute Sounds

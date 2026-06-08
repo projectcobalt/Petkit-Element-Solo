@@ -6,7 +6,7 @@ PETKIT Fresh Element Solo feeder, model D4-2 / product code P570.
 This is an independent community project. It is not affiliated with or endorsed
 by PETKIT.
 
-Current release: `v1.1.0`
+Current release: `v1.2.0`
 
 ## What This Project Provides
 
@@ -18,6 +18,7 @@ confirm outcomes, and notify when something needs attention.
 Current project outcomes:
 
 - Local feed control through ESPHome with configurable portion counts.
+- Child Lock for ignoring accidental physical side-button feed requests.
 - Feed completion events for completed, jammed, and rejected feed attempts.
 - Home Assistant scheduling and supervision through a reusable blueprint.
 - Food-drop pulse monitoring with a persistent Food State surface.
