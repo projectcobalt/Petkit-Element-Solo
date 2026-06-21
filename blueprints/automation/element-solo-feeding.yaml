@@ -20,14 +20,11 @@ blueprint:
       input:
         feeder_device:
           name: Feeder device
-          description: Select the PETKIT Element Solo feeder to schedule and supervise.
-            The blueprint discovers its entities automatically; keep their default
-            entity ID suffixes.
+          description: Select the adopted ESPHome/Fleet Element Solo feeder to schedule and supervise. The blueprint discovers its entities automatically; keep their default entity ID suffixes.
           selector:
             device:
               filter:
-              - integration: esphome
-                model: petkit-element-solo
+              - integration: esphome_fleet
               multiple: false
     schedule:
       name: Schedule
@@ -132,6 +129,9 @@ blueprint:
               reorder: false
 mode: single
 max_exceeded: silent
+trigger_variables:
+  feeder_device: !input feeder_device
+  low_battery_voltage: !input low_battery_voltage
 variables:
   feeder_device: !input feeder_device
   feeder_name: '{{ device_attr(feeder_device, ''name_by_user'') or device_attr(feeder_device,
@@ -160,23 +160,38 @@ variables:
 triggers:
 - triggers: !input schedule_triggers
 - trigger: template
-  value_template: '{{ battery_power_active != '''' and is_state(battery_power_active,
-    ''on'') }}'
+  value_template: >-
+    {% set battery_power_active = device_entities(feeder_device)
+       | select('match', '^binary_sensor\..*_battery_power_active$')
+       | list | first | default('') %}
+    {{ battery_power_active != '' and is_state(battery_power_active, 'on') }}
   for: !input warning_delay
   id: battery_power
 - trigger: template
-  value_template: "{{ battery_voltage != '' and\n   states(battery_voltage) not in
-    ['unknown', 'unavailable'] and\n   states(battery_voltage) | float(999) < low_battery_voltage
-    | float }}"
+  value_template: >-
+    {% set battery_voltage = device_entities(feeder_device)
+       | select('match', '^sensor\..*_battery_pack_voltage$')
+       | list | first | default('') %}
+    {{ battery_voltage != '' and
+       states(battery_voltage) not in ['unknown', 'unavailable'] and
+       states(battery_voltage) | float(999) < low_battery_voltage | float }}
   for: !input warning_delay
   id: low_battery
 - trigger: template
-  value_template: "{{ states(feeder_event) if feeder_event != '' and\n   state_attr(feeder_event,
-    'event_type') == 'feed_jammed' else false }}"
+  value_template: >-
+    {% set feeder_event = device_entities(feeder_device)
+       | select('match', '^event\..*_feeder_event$')
+       | list | first | default('') %}
+    {{ states(feeder_event) if feeder_event != '' and
+       state_attr(feeder_event, 'event_type') == 'feed_jammed' else false }}
   id: feeder_jammed
 - trigger: template
-  value_template: "{{ states(feeder_event) if feeder_event != '' and\n   state_attr(feeder_event,
-    'event_type') == 'feed_rejected' else false }}"
+  value_template: >-
+    {% set feeder_event = device_entities(feeder_device)
+       | select('match', '^event\..*_feeder_event$')
+       | list | first | default('') %}
+    {{ states(feeder_event) if feeder_event != '' and
+       state_attr(feeder_event, 'event_type') == 'feed_rejected' else false }}
   id: feeder_rejected
 actions:
 - choose:
@@ -339,8 +354,10 @@ actions:
     timeout: !input completion_timeout
     continue_on_timeout: true
   - variables:
-      result_event: "{{ 'timeout' if wait.trigger is none else state_attr(feeder_event,
-        'event_type') | default('unknown') }}\n"
+      result_event: '{{ ''timeout'' if wait.trigger is none else state_attr(feeder_event,
+        ''event_type'') | default(''unknown'') }}
+
+        '
   - choose:
     - conditions: '{{ result_event == ''feed_completed'' }}'
       sequence:
